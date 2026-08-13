@@ -1,0 +1,14 @@
+dist/
+bin/
+obj/
+build/
+
+*.obj
+*.res
+*.exp
+*.lib
+*.pdb
+*.ilk
+*.msix
+*.cer
+*.pfx
