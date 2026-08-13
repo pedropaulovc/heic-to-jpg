@@ -59,8 +59,20 @@ Quality defaults to 92. Conversions are logged to
 `%LOCALAPPDATA%\heic-to-jpg\convert.log`; failures also raise a dialog, since
 there is no console when launched from Explorer.
 
+Existing files are never overwritten. `IMG_6090.heic` becomes `IMG_6090.jpg`, or
+`IMG_6090 (2).jpg` if that name is taken — a `.heic` and a `.jpg` of the same
+shot commonly sit side by side after an iPhone import, so a plain collision is
+normal rather than exceptional.
+
 ## Notes
 
 The package is *sparse* — the `.msix` contains only the manifest and logos, and
 points at `dist\` for the binaries. Rebuilding the DLL or the converter does not
 require repackaging or reinstalling.
+
+If you end up debugging activation: `CoCreateInstance` on the CLSID from an
+ordinary unpackaged process returns `REGDB_E_CLASSNOTREG`, and that is expected.
+Explorer activates packaged verbs with the package context, which a plain test
+process does not have. It behaves identically for a non-sparse package that does
+contain the DLL, so it is not evidence of a packaging fault — right-clicking a
+`.heic` is the only meaningful test.

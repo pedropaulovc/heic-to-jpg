@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace Heic2Jpg;
 
 internal static class Program

@@ -9,6 +9,16 @@
   menu at the top level of the new menu when the IExplorerCommand it comes from
   is declared by a package with an identity. Unpackaged shell extensions are
   pushed down under "Show more options".
+
+  Verified working in this form: right-clicking a .heic shows "Convert to JPEG"
+  above "Show more options", and invoking it produces the .jpg.
+
+  Note for anyone debugging this: CoCreateInstance on the CLSID from an ordinary
+  unpackaged process returns REGDB_E_CLASSNOTREG, and that is expected. Explorer
+  activates packaged verbs with the package context, which a plain test process
+  does not have. It happens identically for a non-sparse package that contains the
+  DLL, so it is not evidence of a packaging fault. The menu itself is the only
+  meaningful test.
 -->
 
 <Package

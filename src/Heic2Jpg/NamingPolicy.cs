@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace Heic2Jpg;
 
 /// <summary>
@@ -18,19 +20,37 @@ internal static class NamingPolicy
     /// The full destination path, or <c>null</c> to skip this file entirely
     /// (counted as "skipped", not "failed").
     /// </returns>
+    /// <summary>
+    /// Upper bound on the collision suffix. A folder holding a thousand copies of
+    /// one photo means something has gone wrong upstream; failing loudly beats
+    /// spinning through the filesystem.
+    /// </summary>
+    private const int MaxAttempts = 1000;
+
     internal static string? ResolveOutputPath(string sourcePath, string targetDirectory)
     {
         var baseName = Path.GetFileNameWithoutExtension(sourcePath);
 
-        // TODO(human): decide the output name and the collision rule.
-        //
-        // Available to you:
-        //   baseName        e.g. "IMG_6090" (extension already stripped)
-        //   targetDirectory the folder to write into
-        //   Path.Combine(targetDirectory, baseName + ".jpg")
-        //   File.Exists(candidate)
-        //
-        // Return the chosen full path, or null to skip the file.
-        throw new NotImplementedException("NamingPolicy.ResolveOutputPath");
+        var candidate = Path.Combine(targetDirectory, baseName + ".jpg");
+        if (!File.Exists(candidate))
+        {
+            return candidate;
+        }
+
+        // Never overwrite. A HEIC and a JPEG of the same shot routinely sit side by
+        // side after an iPhone import, so the plain name colliding is normal rather
+        // than exceptional -- and the existing file may be the better original.
+        // Suffixing matches what Explorer itself does when pasting a duplicate.
+        for (var i = 2; i <= MaxAttempts; i++)
+        {
+            candidate = Path.Combine(targetDirectory, $"{baseName} ({i}).jpg");
+            if (!File.Exists(candidate))
+            {
+                return candidate;
+            }
+        }
+
+        throw new IOException(
+            $"Could not find a free name for '{baseName}.jpg' after {MaxAttempts} attempts.");
     }
 }

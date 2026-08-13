@@ -1,3 +1,5 @@
+using System.IO;
+
 namespace Heic2Jpg;
 
 /// <summary>

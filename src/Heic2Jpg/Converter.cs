@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 
@@ -16,11 +17,7 @@ internal static class Converter
         "System.Photo.DateTaken",
         "System.Photo.CameraManufacturer",
         "System.Photo.CameraModel",
-        "System.Photo.ExposureTime",
-        "System.Photo.FNumber",
         "System.Photo.ISOSpeed",
-        "System.Photo.FocalLength",
-        "System.Photo.ExposureBias",
         "System.Photo.Flash",
         "System.Photo.LensModel",
         "System.GPS.Latitude",
@@ -31,6 +28,20 @@ internal static class Converter
         "System.Image.Title",
         "System.Comment",
         "System.Copyright",
+    ];
+
+    /// <summary>
+    /// Exposure data that WIC reads back as a <see cref="double"/> but that EXIF
+    /// stores as a RATIONAL pair. The policy writer rejects the double outright
+    /// ("Unexpected property type or value"), so these have to be packed by hand
+    /// and written to the raw EXIF tag instead.
+    /// </summary>
+    private static readonly (string Policy, ushort Tag, bool Signed)[] RationalFields =
+    [
+        ("System.Photo.ExposureTime", 0x829A, false),
+        ("System.Photo.FNumber",      0x829D, false),
+        ("System.Photo.FocalLength",  0x920A, false),
+        ("System.Photo.ExposureBias", 0x9204, true),
     ];
 
     internal static void Convert(string sourcePath, string destinationPath, int quality)
@@ -100,16 +111,7 @@ internal static class Converter
 
         foreach (var query in PolicyQueries)
         {
-            object? value = null;
-            try
-            {
-                value = source.GetQuery(query);
-            }
-            catch
-            {
-                continue; // Source codec does not expose this field.
-            }
-
+            var value = TryGet(source, query);
             if (value is null || (value is string s && s.Length == 0))
             {
                 continue;
@@ -118,7 +120,90 @@ internal static class Converter
             TrySet(target, query, value);
         }
 
+        foreach (var (policy, tag, signed) in RationalFields)
+        {
+            if (TryGet(source, policy) is not double value)
+            {
+                continue;
+            }
+
+            var query = $"/app1/ifd/exif/{{ushort={tag}}}";
+            if (signed)
+            {
+                TrySet(target, query, PackSignedRational(value));
+                continue;
+            }
+
+            if (value > 0)
+            {
+                TrySet(target, query, PackRational(value));
+            }
+        }
+
         return target;
+    }
+
+    private static object? TryGet(BitmapMetadata source, string query)
+    {
+        try
+        {
+            return source.GetQuery(query);
+        }
+        catch
+        {
+            return null; // Source codec does not expose this field.
+        }
+    }
+
+    /// <summary>EXIF RATIONAL: numerator in the low 32 bits, denominator in the high 32.</summary>
+    private static ulong PackRational(double value)
+    {
+        var (numerator, denominator) = ToFraction(value);
+        return numerator | ((ulong)denominator << 32);
+    }
+
+    /// <summary>EXIF SRATIONAL: the same layout, but both halves are signed.</summary>
+    private static long PackSignedRational(double value)
+    {
+        var (magnitude, denominator) = ToFraction(Math.Abs(value));
+        var numerator = value < 0 ? -(int)magnitude : (int)magnitude;
+        return (long)((uint)numerator | ((ulong)denominator << 32));
+    }
+
+    private static (uint Numerator, uint Denominator) ToFraction(double value)
+    {
+        if (value <= 0 || double.IsNaN(value) || double.IsInfinity(value))
+        {
+            return (0, 1);
+        }
+
+        // Sub-second shutter speeds are written as 1/N by every camera, and photo
+        // viewers render that form directly. 167/10000 would be equivalent but
+        // would display as an unrecognisable decimal.
+        if (value < 1.0)
+        {
+            return (1, Math.Max((uint)Math.Round(1.0 / value), 1));
+        }
+
+        const uint Scale = 10000;
+        if (value > uint.MaxValue / (double)Scale)
+        {
+            return ((uint)Math.Round(value), 1);
+        }
+
+        var numerator = (uint)Math.Round(value * Scale);
+        var divisor = GreatestCommonDivisor(numerator, Scale);
+        return (numerator / divisor, Scale / divisor);
+    }
+
+    private static uint GreatestCommonDivisor(uint a, uint b)
+    {
+        while (b != 0)
+        {
+            (a, b) = (b, a % b);
+        }
+
+        return a == 0 ? 1 : a;
     }
 
     private static void TrySet(BitmapMetadata target, string query, object value)

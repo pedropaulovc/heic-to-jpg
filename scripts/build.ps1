@@ -62,28 +62,37 @@ if (-not (Test-Path $vcvars)) { throw "vcvars64.bat not found at $vcvars." }
 
 # /MT statically links the CRT: a shell extension is loaded into a process we do
 # not control, where a missing VC++ redistributable would be an invisible failure.
-$compile = @(
-    "call `"$vcvars`" >nul",
-    "cd /d `"$shellSrc`"",
-    "rc /nologo /fo `"$objDir\ShellExt.res`" ShellExt.rc",
-    "cl /nologo /W4 /WX /EHsc /O2 /MT /DUNICODE /D_UNICODE /LD dllmain.cpp `"$objDir\ShellExt.res`" " +
-        "/Fo`"$objDir\\`" /Fd`"$objDir\ShellExt.pdb`" " +
-        "/link /DEF:ShellExt.def /OUT:`"$dist\HeicToJpegShellExt.dll`" " +
-        "/IMPLIB:`"$objDir\ShellExt.lib`" ole32.lib shlwapi.lib user32.lib"
-) -join " && "
+#
+# /Fo needs a trailing separator to mean "directory". A trailing backslash inside
+# quotes would escape the closing quote, so use a forward slash -- MSVC accepts
+# either, and this keeps paths containing spaces safe.
+$res = "$objDir\ShellExt.res"
+$clArgs = "/nologo /W4 /WX /EHsc /O2 /MT /DUNICODE /D_UNICODE /LD dllmain.cpp `"$res`"" +
+          " /Fo`"$objDir/`" /Fd`"$objDir\ShellExt.pdb`"" +
+          " /link /DEF:ShellExt.def /OUT:`"$dist\HeicToJpegShellExt.dll`"" +
+          " /IMPLIB:`"$objDir\ShellExt.lib`" ole32.lib shlwapi.lib user32.lib"
+
+$steps = @(
+    "call `"$vcvars`" >nul"
+    "cd /d `"$shellSrc`""
+    "rc /nologo /fo `"$res`" ShellExt.rc"
+    "cl $clArgs"
+)
+$compile = $steps -join " && "
 
 & cmd.exe /c $compile
 if ($LASTEXITCODE -ne 0) { throw "Native build failed with exit code $LASTEXITCODE." }
 
-# --- 3. Sparse MSIX ---------------------------------------------------------
+# --- 3. MSIX ----------------------------------------------------------------
 Write-Host "[3/3] Packing HeicToJpeg.msix..." -ForegroundColor Cyan
 
 $makeappx = Find-Tool "makeappx.exe"
 $msix = Join-Path $dist "HeicToJpeg.msix"
 if (Test-Path $msix) { Remove-Item $msix -Force }
 
-# /nv skips validation: the manifest names heic2jpg.exe, which by design lives in
-# the external location rather than inside the package.
+# Only the manifest and logos are packed; the binaries stay in dist\ and are
+# reached through -ExternalLocation at install time. /nv skips validation, which
+# would otherwise object to heic2jpg.exe not being inside the package.
 & $makeappx pack /d (Join-Path $root "package") /p $msix /nv /o
 if ($LASTEXITCODE -ne 0) { throw "makeappx failed with exit code $LASTEXITCODE." }
 
