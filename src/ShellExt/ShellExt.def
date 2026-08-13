@@ -1,0 +1,5 @@
+LIBRARY HeicToJpegShellExt
+
+EXPORTS
+    DllGetClassObject   PRIVATE
+    DllCanUnloadNow     PRIVATE

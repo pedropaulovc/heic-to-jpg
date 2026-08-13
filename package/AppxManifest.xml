@@ -1,0 +1,115 @@
+<?xml version="1.0" encoding="utf-8"?>
+
+<!--
+  Sparse package ("package with external location"). This .msix carries only the
+  manifest and logos; the DLL and converter .exe live in an ordinary folder that
+  Add-AppxPackage is pointed at via -ExternalLocation.
+
+  The point of packaging at all is identity: Windows 11 only surfaces a context
+  menu at the top level of the new menu when the IExplorerCommand it comes from
+  is declared by a package with an identity. Unpackaged shell extensions are
+  pushed down under "Show more options".
+
+  Verified working in this form: right-clicking a .heic shows "Convert to JPEG"
+  above "Show more options", and invoking it produces the .jpg.
+
+  Note for anyone debugging this: CoCreateInstance on the CLSID from an ordinary
+  unpackaged process returns REGDB_E_CLASSNOTREG, and that is expected. Explorer
+  activates packaged verbs with the package context, which a plain test process
+  does not have. It happens identically for a non-sparse package that contains the
+  DLL, so it is not evidence of a packaging fault. The menu itself is the only
+  meaningful test.
+-->
+
+<Package
+  xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
+  xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
+  xmlns:uap10="http://schemas.microsoft.com/appx/manifest/uap/windows10/10"
+  xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  xmlns:desktop4="http://schemas.microsoft.com/appx/manifest/desktop/windows10/4"
+  xmlns:desktop5="http://schemas.microsoft.com/appx/manifest/desktop/windows10/5"
+  IgnorableNamespaces="uap uap10 rescap com desktop4 desktop5">
+
+  <!-- Publisher must match the signing certificate subject byte for byte. -->
+  <Identity
+    Name="PedroVezza.HeicToJpeg"
+    Publisher="CN=Pedro Paulo Vezza Campos"
+    Version="1.0.0.0"
+    ProcessorArchitecture="x64" />
+
+  <Properties>
+    <DisplayName>HEIC to JPEG</DisplayName>
+    <PublisherDisplayName>Pedro Paulo Vezza Campos</PublisherDisplayName>
+    <Logo>Assets\StoreLogo.png</Logo>
+    <uap10:AllowExternalContent>true</uap10:AllowExternalContent>
+  </Properties>
+
+  <Dependencies>
+    <!-- 22621 is the first build with the stable Win11 context menu surface. -->
+    <TargetDeviceFamily Name="Windows.Desktop" MinVersion="10.0.22621.0" MaxVersionTested="10.0.26200.0" />
+  </Dependencies>
+
+  <Resources>
+    <Resource Language="en-us" />
+  </Resources>
+
+  <Capabilities>
+    <rescap:Capability Name="runFullTrust" />
+    <!-- Required alongside RuntimeBehavior="win32App" below: the converter reads and
+         writes ordinary user folders and must not see a virtualised view of them. -->
+    <rescap:Capability Name="unvirtualizedResources" />
+  </Capabilities>
+
+  <Applications>
+    <!-- TrustLevel/RuntimeBehavior are what make this a packaged *Win32* app rather
+         than a UWP one: it keeps normal desktop process behaviour and unvirtualised
+         file access while still gaining the package identity the menu needs. -->
+    <!-- No EntryPoint: makeappx rejects the manifest outright if RuntimeBehavior is
+         "win32App" and an EntryPoint is declared. Windows.FullTrustApplication is
+         the UWP-activation entry point that win32App replaces. -->
+    <Application Id="HeicToJpeg" Executable="heic2jpg.exe"
+                 uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
+
+      <!-- AppListEntry="none": this package exists only to host a context menu,
+           so it should not appear as a launchable app in the Start menu. -->
+      <uap:VisualElements
+        DisplayName="HEIC to JPEG"
+        Description="Convert HEIC images to JPEG from the Explorer context menu."
+        BackgroundColor="transparent"
+        Square150x150Logo="Assets\Square150x150Logo.png"
+        Square44x44Logo="Assets\Square44x44Logo.png"
+        AppListEntry="none" />
+
+      <Extensions>
+
+        <!-- Registers the COM class. SurrogateServer is the packaged equivalent
+             of an InprocServer32 registration: Windows hosts the DLL for Explorer. -->
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:SurrogateServer DisplayName="HEIC to JPEG context menu">
+              <com:Class
+                Id="7BF1D449-FD9B-4E96-8C33-88F9A85D4EC1"
+                Path="HeicToJpegShellExt.dll"
+                ThreadingModel="STA" />
+            </com:SurrogateServer>
+          </com:ComServer>
+        </com:Extension>
+
+        <!-- Binds the verb to the file types. Explorer instantiates the CLSID
+             above and calls IExplorerCommand on it. -->
+        <desktop4:Extension Category="windows.fileExplorerContextMenus">
+          <desktop4:FileExplorerContextMenus>
+            <desktop5:ItemType Type=".heic">
+              <desktop5:Verb Id="ConvertToJpeg" Clsid="7BF1D449-FD9B-4E96-8C33-88F9A85D4EC1" />
+            </desktop5:ItemType>
+            <desktop5:ItemType Type=".heif">
+              <desktop5:Verb Id="ConvertToJpeg" Clsid="7BF1D449-FD9B-4E96-8C33-88F9A85D4EC1" />
+            </desktop5:ItemType>
+          </desktop4:FileExplorerContextMenus>
+        </desktop4:Extension>
+
+      </Extensions>
+    </Application>
+  </Applications>
+</Package>
