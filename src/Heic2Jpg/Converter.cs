@@ -44,7 +44,11 @@ internal static class Converter
         ("System.Photo.ExposureBias", 0x9204, true),
     ];
 
-    internal static void Convert(string sourcePath, string destinationPath, int quality)
+    /// <summary>
+    /// Decodes <paramref name="sourcePath"/> into <paramref name="targetDirectory"/>
+    /// and returns the path it settled on, which may carry a collision suffix.
+    /// </summary>
+    internal static string Convert(string sourcePath, string targetDirectory, int quality)
     {
         BitmapFrame frame;
         BitmapMetadata? sourceMetadata;
@@ -71,9 +75,11 @@ internal static class Converter
         var encoder = new JpegBitmapEncoder { QualityLevel = quality };
         encoder.Frames.Add(BitmapFrame.Create(opaque, null, BuildJpegMetadata(sourceMetadata), null));
 
-        // Encode to a sibling temp file and move into place, so an interrupted run
+        // Encode to a private temp file and move into place, so an interrupted run
         // can never leave a half-written .jpg that looks like a successful result.
-        var tempPath = destinationPath + ".partial";
+        // The name is random rather than derived from the destination: two converter
+        // processes racing for the same photo must not share a temp file.
+        var tempPath = Path.Combine(targetDirectory, $"heic2jpg-{Path.GetRandomFileName()}.partial");
         try
         {
             using (var output = File.Create(tempPath))
@@ -81,18 +87,49 @@ internal static class Converter
                 encoder.Save(output);
             }
 
-            File.Move(tempPath, destinationPath, overwrite: true);
+            // Keep the capture date meaningful for tools that sort by file time.
+            // Set here rather than after the move: File.Move preserves timestamps,
+            // and the final path is not known until the claim succeeds.
+            File.SetLastWriteTime(tempPath, File.GetLastWriteTime(sourcePath));
+            File.SetCreationTime(tempPath, File.GetCreationTime(sourcePath));
+
+            return Claim(tempPath, sourcePath, targetDirectory);
         }
         catch
         {
             TryDelete(tempPath);
             throw;
         }
+    }
 
-        // Keep the capture date meaningful for tools that sort by file time.
-        var written = File.GetLastWriteTime(sourcePath);
-        File.SetLastWriteTime(destinationPath, written);
-        File.SetCreationTime(destinationPath, File.GetCreationTime(sourcePath));
+    /// <summary>
+    /// Renames the encoded file onto the first free candidate name.
+    /// </summary>
+    /// <remarks>
+    /// The move itself is the allocation. A non-overwriting <see cref="File.Move(string, string)"/>
+    /// fails if the destination exists, so whichever process moves first owns the
+    /// name and the loser simply takes the next one. Testing with
+    /// <see cref="File.Exists(string)"/> and then writing would leave a window in
+    /// which a concurrent run replaces a finished JPEG.
+    /// </remarks>
+    private static string Claim(string tempPath, string sourcePath, string targetDirectory)
+    {
+        foreach (var candidate in NamingPolicy.CandidateNames(sourcePath, targetDirectory))
+        {
+            try
+            {
+                File.Move(tempPath, candidate);
+                return candidate;
+            }
+            catch (IOException) when (File.Exists(candidate))
+            {
+                // Name taken, by an earlier run or by a process that just beat us to
+                // it. Anything else -- sharing violation, full disk -- is a real
+                // failure and must not be retried against a thousand more names.
+            }
+        }
+
+        throw NamingPolicy.Exhausted(sourcePath);
     }
 
     private static BitmapMetadata BuildJpegMetadata(BitmapMetadata? source)

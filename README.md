@@ -45,9 +45,23 @@ and the .NET 10 SDK.
 `install.ps1` creates a self-signed code-signing certificate, adds it to
 `LocalMachine\TrustedPeople`, signs the package, and registers it. Windows will
 not load a packaged shell extension whose signature it cannot validate, so this
-step is unavoidable without a purchased certificate.
+step is unavoidable without a purchased certificate. The thumbprint is recorded
+under `%ProgramData%\heic-to-jpg` so uninstall removes that certificate and not
+any other one sharing the subject.
 
-Uninstall with `.\scripts\uninstall.ps1`, which also removes the certificate.
+Elevate from your own session — accept the UAC prompt rather than typing a
+different administrator's credentials. `Add-AppxPackage` registers per user, so
+running as another account installs the menu for that account instead. The
+script checks who owns the desktop and refuses rather than installing it
+somewhere you will never see it.
+
+```powershell
+# Elevated: removes the package and the certificate.
+.\scripts\uninstall.ps1
+
+# Not elevated: removes the package only, leaving the certificate trusted.
+.\scripts\uninstall.ps1 -KeepCertificate
+```
 
 ## Usage from the command line
 
@@ -62,7 +76,13 @@ there is no console when launched from Explorer.
 Existing files are never overwritten. `IMG_6090.heic` becomes `IMG_6090.jpg`, or
 `IMG_6090 (2).jpg` if that name is taken — a `.heic` and a `.jpg` of the same
 shot commonly sit side by side after an iPhone import, so a plain collision is
-normal rather than exceptional.
+normal rather than exceptional. The name is claimed with a non-overwriting move
+rather than an existence check, so two converters racing over the same photo
+still produce two files:
+
+```powershell
+.\scripts\test-concurrent-naming.ps1        # 4 converters, one source, 4 distinct JPEGs
+```
 
 ## Notes
 

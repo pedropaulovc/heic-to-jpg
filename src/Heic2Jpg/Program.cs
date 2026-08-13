@@ -17,8 +17,15 @@ internal static class Program
         {
             var arg = args[i];
 
-            if (arg is "--quality" or "-q" && i + 1 < args.Length)
+            // Match the option before looking at its value: an option in last
+            // position would otherwise fall through and be treated as a filename,
+            // reporting "file not found" for what is really a missing argument.
+            if (arg is "--quality" or "-q")
             {
+                if (i + 1 >= args.Length)
+                {
+                    return Fail($"{arg} requires a value between 1 and 100.");
+                }
                 if (!int.TryParse(args[++i], out quality) || quality is < 1 or > 100)
                 {
                     return Fail($"--quality must be between 1 and 100, got '{args[i]}'.");
@@ -26,8 +33,12 @@ internal static class Program
                 continue;
             }
 
-            if (arg is "--outdir" or "-o" && i + 1 < args.Length)
+            if (arg is "--outdir" or "-o")
             {
+                if (i + 1 >= args.Length)
+                {
+                    return Fail($"{arg} requires a directory.");
+                }
                 outputDirectory = args[++i];
                 continue;
             }
@@ -50,7 +61,6 @@ internal static class Program
 
         var failures = new List<string>();
         var converted = 0;
-        var skipped = 0;
 
         foreach (var source in sources)
         {
@@ -68,15 +78,7 @@ internal static class Program
 
                 Directory.CreateDirectory(targetDirectory);
 
-                var destination = NamingPolicy.ResolveOutputPath(source, targetDirectory);
-                if (destination is null)
-                {
-                    Log.Write($"Skipped (naming policy): {source}");
-                    skipped++;
-                    continue;
-                }
-
-                Converter.Convert(source, destination, quality);
+                var destination = Converter.Convert(source, targetDirectory, quality);
                 Log.Write($"Converted: {source} -> {destination}");
                 converted++;
             }
@@ -87,27 +89,23 @@ internal static class Program
             }
         }
 
-        Log.Write($"Done: {converted} converted, {skipped} skipped, {failures.Count} failed");
+        Log.Write($"Done: {converted} converted, {failures.Count} failed");
 
         if (failures.Count > 0)
         {
-            Report(BuildFailureSummary(converted, skipped, failures));
+            Report(BuildFailureSummary(converted, failures));
             return 1;
         }
 
         return 0;
     }
 
-    private static string BuildFailureSummary(int converted, int skipped, List<string> failures)
+    private static string BuildFailureSummary(int converted, List<string> failures)
     {
         var lines = new List<string>();
         if (converted > 0)
         {
             lines.Add($"{converted} file(s) converted.");
-        }
-        if (skipped > 0)
-        {
-            lines.Add($"{skipped} file(s) skipped.");
         }
 
         lines.Add($"{failures.Count} file(s) failed:");

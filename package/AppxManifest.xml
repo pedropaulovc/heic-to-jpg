@@ -56,10 +56,20 @@
 
   <Capabilities>
     <rescap:Capability Name="runFullTrust" />
+    <!-- Required alongside RuntimeBehavior="win32App" below: the converter reads and
+         writes ordinary user folders and must not see a virtualised view of them. -->
+    <rescap:Capability Name="unvirtualizedResources" />
   </Capabilities>
 
   <Applications>
-    <Application Id="HeicToJpeg" Executable="heic2jpg.exe" EntryPoint="Windows.FullTrustApplication">
+    <!-- TrustLevel/RuntimeBehavior are what make this a packaged *Win32* app rather
+         than a UWP one: it keeps normal desktop process behaviour and unvirtualised
+         file access while still gaining the package identity the menu needs. -->
+    <!-- No EntryPoint: makeappx rejects the manifest outright if RuntimeBehavior is
+         "win32App" and an EntryPoint is declared. Windows.FullTrustApplication is
+         the UWP-activation entry point that win32App replaces. -->
+    <Application Id="HeicToJpeg" Executable="heic2jpg.exe"
+                 uap10:TrustLevel="mediumIL" uap10:RuntimeBehavior="win32App">
 
       <!-- AppListEntry="none": this package exists only to host a context menu,
            so it should not appear as a launchable app in the Start menu. -->
